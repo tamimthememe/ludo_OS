@@ -14,3 +14,18 @@ This is a Ludo game developed as part of my **Operating Systems final project**.
    ```bash
    git clone https://github.com/yourusername/ludo-game.git
    cd ludo-game
+
+3. Compile all files
+    ```bash
+   g++ -o settings settings.cpp
+   g++ -o ludoMain ludoMain.cpp
+   g++ -o leaderboard leaderboard.cpp
+   g++ -o menu menu.cpp
+   g++ -o commentary commentary.cpp
+
+5. Run the executables
+In the first and second terminal respectively:
+```bash
+   ./menu
+   ./commentary
+
