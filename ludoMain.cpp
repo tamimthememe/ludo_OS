@@ -15,6 +15,7 @@
 
 using namespace std;
 
+pthread_mutex_t boardMutex = PTHREAD_MUTEX_INITIALIZER;
 struct Dice
 {
     int num;
@@ -35,6 +36,7 @@ struct Dice
         num = rand() % 6 + 1;
         // To test 3 consecutive 6 validation
         // num = 2;
+        num = 6;
         cout << "Player " << playerId << " rolled: " << num << std::endl;
         pthread_mutex_unlock(&mutex);
         return num;
@@ -283,13 +285,15 @@ struct Player
             break;
         }
         token.inPlay = false;
+        pthread_mutex_lock(&boardMutex);
         board[token.i][token.j] = token.symbol;
+        pthread_mutex_unlock(&boardMutex);
     }
 };
 
 struct HitManager
 {
-    vector<Player> *players; // Pointer to shared players vector
+    vector<Player> *players;
     pthread_mutex_t mutex;
 
     void placeTokens()
@@ -298,7 +302,9 @@ struct HitManager
         {
             for (int j = 0; j < (*players)[i].tokens.size(); j++)
             {
+                pthread_mutex_lock(&boardMutex);
                 board[(*players)[i].tokens[j].i][(*players)[i].tokens[j].j] = (*players)[i].tokens[j].symbol;
+                pthread_mutex_unlock(&boardMutex);
             }
         }
     }
@@ -323,15 +329,14 @@ struct HitManager
                             return;
                         }
                         string message;
-                        string str(1, currentPlayer.color);
-                        string str2(1, player.color);
-                        message = str + " has hit " + str2;
+
+                        message = currentPlayer.name + " has hit " + player.name;
                         if (write(fd, message.c_str(), message.size() + 1) == -1)
-                        { // Include null terminator
+                        {
                             perror("write");
                         }
                         close(fd);
-                        // Reset the token or take necessary action
+
                         player.resetToken(player.tokens[m]);
                         return;
                     }
@@ -343,8 +348,8 @@ struct HitManager
     }
 };
 
-// Global Variables / Shared Variables
-// The board is also global in board.h
+//! Global Variables / Shared Variables
+//! The board is also global in board.h
 Dice dice;
 pthread_mutex_t turnMutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t cinMutex = PTHREAD_MUTEX_INITIALIZER;
@@ -430,8 +435,10 @@ void moveToken(int &i, int &j, int moves, char symbol, char color, Player &playe
             i++;
             j--;
         }
-
+        pthread_mutex_lock(&boardMutex);
         board[i][j] = symbol;
+        pthread_mutex_unlock(&boardMutex);
+
         initializeSafety();
         initializeHomes();
         hitManager.placeTokens();
@@ -471,6 +478,11 @@ void *playerTurn(void *arg)
             pthread_mutex_lock(&cinMutex);
             system("clear");
             displayBoard();
+            if (player->hasWon)
+            {
+                turn = ((turn) % totalPlayers) + 1;
+                continue;
+            }
             cout << "Player " << player->color << ", type 'r' to roll the dice: ";
             char input;
             cin >> input;
@@ -488,13 +500,13 @@ void *playerTurn(void *arg)
                     if (fd == -1)
                     {
                         perror("open");
-                        continue; // Skip to the next iteration
+                        continue;
                     }
                     string message;
-                    string str(1, player->color);
-                    message = str + " has rolled " + to_string(rollResult[0]);
+
+                    message = player->name + " has rolled " + to_string(rollResult[0]);
                     if (write(fd, message.c_str(), message.size() + 1) == -1)
-                    { // Include null terminator
+                    {
                         perror("write");
                     }
                     close(fd);
@@ -529,10 +541,10 @@ void *playerTurn(void *arg)
                             return nullptr;
                         }
                         string message;
-                        string str(1, player->color);
-                        message = str + " has moved " + to_string(tokenInput) + " " + to_string(rollResult[i]) + " places ";
+
+                        message = player->name + " has moved token: " + to_string(tokenInput) + ", " + to_string(rollResult[i]) + " places ";
                         if (write(fd, message.c_str(), message.size() + 1) == -1)
-                        { // Include null terminator
+                        {
                             perror("write");
                         }
                         close(fd);
@@ -540,6 +552,7 @@ void *playerTurn(void *arg)
                     }
                     else
                     {
+                        pthread_mutex_lock(&boardMutex);
                         switch (tokenInput)
                         {
                         case 1:
@@ -687,6 +700,7 @@ void *playerTurn(void *arg)
                             break;
                         }
                         }
+                        pthread_mutex_unlock(&boardMutex);
                     }
                 }
 
@@ -721,13 +735,11 @@ void *masterThread(void *arg)
     //* Thread for each player
     pthread_t *players = new pthread_t[playerArray.size()];
 
-    // Simulate turns for all players
     for (int i = 0; i < playerArray.size(); ++i)
     {
         pthread_create(&players[i], nullptr, playerTurn, (void *)&playerArray[i]);
     }
 
-    // Wait for all players to complete their turn
     for (int i = 0; i < playerArray.size(); ++i)
     {
         pthread_join(players[i], nullptr);
